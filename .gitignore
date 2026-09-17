@@ -7,5 +7,6 @@ __pycache__/
 
 # El CV es informacion personal y el repo es publico.
 # Se ignora todo el contenido menos las instrucciones.
+cv/
 cv/*
 !cv/LEEME.md
