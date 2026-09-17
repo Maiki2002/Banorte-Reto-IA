@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.git/
+.gitignore
+
+# Solo se usan para construir el indice o para desarrollo,
+# no hacen falta dentro del contenedor.
+cv/*.pdf
+tests/
+README.md
+Dockerfile
+.dockerignore
+cv/LEEME.md
