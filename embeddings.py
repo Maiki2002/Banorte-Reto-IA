@@ -81,22 +81,6 @@ def normalizar(vectores):
     return matriz
 
 
-# Reemplaza el indice completo. Lo llama indexar.py.
-def subir(fragmentos, vectores):
-    contenedor = _contenedor(crear=True)
-    for fragmento, vector in zip(fragmentos, vectores):
-        contenedor.upsert_item(
-            {
-                "id": identificador(fragmento),
-                "fuente": fragmento["fuente"],
-                "titulo": fragmento["titulo"],
-                "texto": fragmento["texto"],
-                "vector": vector,
-            }
-        )
-    return len(fragmentos)
-
-
 # La busqueda la hace Cosmos: VectorDistance calcula la similitud y el
 # ORDER BY trae solo los mas parecidos.
 def buscar_en_cosmos(consulta, fuente=None, cuantos=3):
@@ -182,7 +166,7 @@ def cuantos_hay():
         contenedor = _contenedor(crear=True)
         filas = list(
             contenedor.query_items(
-                query="SELECT VALUE COUNT(1) FROM c",
+                query="SELECT VALUE COUNT(1) FROM c WHERE c.fuente != 'control'",
                 enable_cross_partition_query=True,
             )
         )
@@ -190,22 +174,92 @@ def cuantos_hay():
     return len(_memoria["fragmentos"])
 
 
-# Se llama antes de la primera busqueda. Si no hay nada guardado, lee las
-# fuentes y construye el indice; despues no vuelve a hacer nada.
+# Una firma del contenido de cv/. Si cambia, es que se agregaron o
+# editaron documentos y hay que volver a indexarlos.
+def firma_documentos():
+    import pathlib
+
+    resumen = hashlib.sha1()
+    carpeta = pathlib.Path("cv")
+    for archivo in sorted(carpeta.glob("*")):
+        if archivo.suffix.lower() not in (".pdf", ".md", ".txt"):
+            continue
+        if archivo.name == "LEEME.md":
+            continue
+        resumen.update(archivo.name.encode())
+        resumen.update(archivo.read_bytes())
+    return resumen.hexdigest()
+
+
+# La firma se guarda como un documento mas, en su propia particion.
+def _firma_guardada():
+    if not configurado():
+        return _memoria.get("firma")
+    try:
+        doc = _contenedor().read_item(item="firma", partition_key="control")
+        return doc.get("valor")
+    except Exception:
+        return None
+
+
+def _guardar_firma(valor):
+    if not configurado():
+        _memoria["firma"] = valor
+        return
+    _contenedor(crear=True).upsert_item(
+        {"id": "firma", "fuente": "control", "valor": valor}
+    )
+
+
+def _borrar_documentos():
+    if not configurado():
+        indice = _memoria
+        pares = [
+            (f, v)
+            for f, v in zip(indice["fragmentos"], indice["vectores"])
+            if f["fuente"] != "documentos"
+        ]
+        indice["fragmentos"] = [f for f, _ in pares]
+        indice["vectores"] = [v for _, v in pares]
+        return
+
+    contenedor = _contenedor()
+    for fila in contenedor.query_items(
+        query="SELECT c.id FROM c WHERE c.fuente = 'documentos'",
+        enable_cross_partition_query=True,
+    ):
+        contenedor.delete_item(item=fila["id"], partition_key="documentos")
+
+
+# Se llama antes de la primera busqueda. Construye el indice si esta
+# vacio, y reindexa los documentos si cambiaron desde la ultima vez.
 def asegurar_indice():
     global _listo
     if _listo:
         return
+    _listo = True
 
-    if cuantos_hay() == 0:
-        import indexar
+    import indexar
 
+    vacio = cuantos_hay() == 0
+    if vacio:
         print("Indice vacio: construyendolo desde las fuentes...")
         fragmentos = indexar.desde_documentos() + indexar.desde_github()
         agregar(fragmentos)
+        _guardar_firma(firma_documentos())
         print(f"  {len(fragmentos)} fragmentos indexados")
+        return
 
-    _listo = True
+    # El indice ya existe: solo hay que rehacer los documentos si el
+    # contenido de cv/ cambio.
+    actual = firma_documentos()
+    if actual != _firma_guardada():
+        print("Los documentos cambiaron: reindexandolos...")
+        _borrar_documentos()
+        nuevos = indexar.desde_documentos()
+        agregar(nuevos)
+        _guardar_firma(actual)
+        print(f"  {len(nuevos)} fragmentos de documentos actualizados")
 
 
 def en_memoria():
@@ -240,7 +294,7 @@ def todos():
         contenedor = _contenedor()
         filas = list(
             contenedor.query_items(
-                query="SELECT c.fuente, c.titulo, c.texto FROM c",
+                query="SELECT c.fuente, c.titulo, c.texto FROM c WHERE c.fuente != 'control'",
                 enable_cross_partition_query=True,
             )
         )

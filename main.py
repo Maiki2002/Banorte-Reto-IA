@@ -97,7 +97,7 @@ async def responder(request: Request):
     if agente.pedidas:
         respuesta["output"].extend(
             tarjetas.como_items(
-                agente.mensajes_a2ui(),
+                agente.mensajes_a2ui(texto),
                 spec.nuevo_id("fc"),
                 spec.nuevo_id("call"),
             )
@@ -143,7 +143,7 @@ async def transmitir(modelo, conversacion, ident, guardar, instrucciones=None):
     # y su resultado, que es lo que la plataforma espera para pintarlas.
     if agente.pedidas:
         items = tarjetas.como_items(
-            agente.mensajes_a2ui(),
+            agente.mensajes_a2ui(envio.texto),
             spec.nuevo_id("fc"),
             spec.nuevo_id("call"),
         )

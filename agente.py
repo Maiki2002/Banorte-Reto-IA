@@ -72,6 +72,28 @@ def buscar_github(consulta: str) -> str:
     return con_su_fuente(encontrados)
 
 
+def buscar_todo(consulta: str) -> str:
+    """Busca a la vez en los documentos y en los repositorios.
+
+    Usala cuando la pregunta sea amplia o cuando quieras contrastar lo
+    que dice el CV con lo que hay en el codigo: por ejemplo, si el CV
+    menciona una tecnologia, ver si existe un repositorio que la use.
+
+    Args:
+        consulta: que buscar, en palabras clave o pregunta corta.
+    """
+    docs = busqueda.buscar(consulta, fuente="documentos", cuantos=4)
+    repos = busqueda.buscar(consulta, fuente="github", cuantos=3)
+
+    if not docs and not repos and indexar_repos_nuevos():
+        repos = busqueda.buscar(consulta, fuente="github", cuantos=3)
+
+    encontrados = docs + repos
+    if not encontrados:
+        return "No encontre nada sobre eso en ninguna fuente."
+    return con_su_fuente(encontrados)
+
+
 def calcular_experiencia() -> str:
     texto = "\n".join(embeddings.textos_de("documentos"))
 
@@ -163,6 +185,63 @@ def mostrar_tarjetas(titulo: str) -> str:
 pedidas = {}
 
 
+def mostrar_presentacion() -> str:
+    """Muestra la carta de presentacion del candidato.
+
+    Incluye su nombre, a que se dedica, sus cifras principales y botones
+    para empezar la conversacion. Usala en el primer mensaje, cuando
+    saluden, cuando pregunten quien es o que puede contar este agente.
+    """
+    if not tarjetas.activado():
+        return "La vista no esta disponible; responde solo con texto."
+    pedidas["presentacion"] = True
+    return "Listo: se mostrara la carta de presentacion."
+
+
+def mostrar_habilidades(areas: str) -> str:
+    """Muestra las habilidades por area, con barras de nivel e iconos.
+
+    Args:
+        areas: las areas y sus tecnologias, una por linea, con el formato
+            "Area: tecnologia, tecnologia". Usa solo lo que hayas visto
+            en lo recuperado.
+    """
+    if not tarjetas.activado():
+        return "La vista no esta disponible; responde solo con texto."
+    pedidas["habilidades"] = areas
+    return "Listo: se mostraran las habilidades por area."
+
+
+def mostrar_trayectoria() -> str:
+    """Muestra la experiencia y los proyectos como una linea de tiempo.
+
+    Cada periodo aparece con sus fechas en una tarjeta ordenada. Usala
+    cuando pregunten por la experiencia laboral, la trayectoria o el
+    recorrido profesional.
+    """
+    if not tarjetas.activado():
+        return "La vista no esta disponible; responde solo con texto."
+    pedidas["trayectoria"] = True
+    return "Listo: se mostrara la linea de tiempo."
+
+
+def mostrar_stack(areas: str) -> str:
+    """Muestra el stack tecnico agrupado por area, con una grafica.
+
+    Usala cuando pregunten por tecnologias, herramientas o que sabe usar.
+
+    Args:
+        areas: las areas y sus tecnologias, una por linea, con el formato
+            "Area: tecnologia, tecnologia, tecnologia". Por ejemplo:
+            "Backend: Python, FastAPI, Java\nFrontend: React, Vite".
+            Usa solo tecnologias que hayas visto en lo recuperado.
+    """
+    if not tarjetas.activado():
+        return "La vista no esta disponible; responde solo con texto."
+    pedidas["stack"] = areas
+    return "Listo: se mostrara el stack agrupado por area."
+
+
 def mostrar_panel() -> str:
     """Muestra un panel visual con las cifras del perfil y una grafica.
 
@@ -181,9 +260,18 @@ def mostrar_panel() -> str:
     return "Listo: se mostrara el panel con las cifras del perfil."
 
 
-HERRAMIENTAS = [buscar_cv, buscar_github, calcular_experiencia]
+HERRAMIENTAS = [buscar_cv, buscar_github, buscar_todo, calcular_experiencia]
 if tarjetas.activado():
-    HERRAMIENTAS.extend([mostrar_tarjetas, mostrar_panel])
+    HERRAMIENTAS.extend(
+        [
+            mostrar_presentacion,
+            mostrar_tarjetas,
+            mostrar_panel,
+            mostrar_trayectoria,
+            mostrar_stack,
+            mostrar_habilidades,
+        ]
+    )
 
 
 # Lo ultimo que se recupero, por si hay que armar tarjetas con ello.
@@ -269,6 +357,10 @@ Como escribes:
   que entender, eso es lo que interesa.
 - Conecta lo que recuperaste. Si una tecnologia aparece en un empleo y
   en un proyecto propio, dilo: demuestra que no la vio una sola vez.
+- Busca en mas de un sitio antes de responder algo amplio. Para
+  preguntas generales usa buscar_todo, o llama a buscar_cv y a
+  buscar_github por separado: una respuesta que cruza el CV con los
+  repositorios convence mas que una que solo mira una fuente.
 - Cuando algo sea pequeno, enmarcalo bien en vez de agrandarlo. Un
   becario que documenta un servicio SOAP sin documentacion previa
   demuestra algo real; no hace falta llamarlo arquitecto.
@@ -290,11 +382,31 @@ Los limites, que no se negocian:
   mas cercano que si tenga. Reconocer un hueco da mas credibilidad que
   esquivarlo.
 
-Cuando uses tarjetas o panel:
+Como lo presentas:
 
-Si llamas a mostrar_tarjetas o mostrar_panel, tu texto se acorta:
-presenta el conjunto en dos o tres frases y deja que lo visual cuente el
-detalle. No repitas lo que ya va ahi.
+Tienes vistas visuales y casi siempre hay una que encaja. Elige:
+
+- mostrar_presentacion  quien es: nombre, cifras y botones de inicio.
+  Usala en el primer mensaje y cuando saluden.
+- mostrar_habilidades   habilidades por area, con barras de nivel
+- mostrar_tarjetas   proyectos o repositorios, una tarjeta cada uno
+- mostrar_trayectoria experiencia laboral o recorrido, en linea de tiempo
+- mostrar_stack      tecnologias agrupadas por area, con grafica
+- mostrar_panel      resumen general: cifras del perfil y grafica
+
+Usa la que corresponda siempre que la respuesta tenga varios elementos o
+cifras. Solo responde con texto pelado cuando sea un dato muy suelto.
+Ante un saludo o un "quien eres", usa mostrar_presentacion.
+
+Puedes usar emoji en los titulos y etiquetas cuando ayuden a leer de un
+vistazo, con moderacion: 💻 backend, 🧠 IA, 🎯 objetivos, ⏳ tiempo.
+
+Si llamas a una de esas vistas, tu texto se acorta: presenta el conjunto
+en dos o tres frases y deja que lo visual cuente el detalle. No repitas
+lo que ya va ahi.
+
+Las preguntas con las que cierras se convierten en botones, asi que
+escribelas cortas y concretas: quien pregunta va a hacer clic en ellas.
 
 Como cierras:
 
@@ -459,15 +571,77 @@ async def responder_en_partes(turnos, extra=None):
     raise RuntimeError(f"Ningun modelo disponible. Ultimo error: {ultimo_error}")
 
 
-# Arma los mensajes A2UI segun lo que haya pedido el agente.
-def mensajes_a2ui():
-    if pedidas.get("panel"):
-        texto = "\n".join(embeddings.textos_de("documentos"))
-        periodos = fusionar(periodos_del_texto(texto))
-        meses = sum(
-            (h.year - d.year) * 12 + (h.month - d.month) for d, h in periodos
-        )
-        fragmentos, _ = embeddings.todos()
-        return tarjetas.panel(meses, fragmentos)
+# Las preguntas con las que cierra la respuesta se convierten en botones.
+def preguntas_de(texto):
+    sueltas = []
+    for linea in texto.splitlines():
+        linea = linea.strip(" -*\u2022")
+        if linea.endswith("?") and 12 < len(linea) < 80:
+            sueltas.append(linea)
+    return sueltas[-3:]
 
-    return tarjetas.desde_fragmentos(ultimos, pedidas.get("titulo", "Perfil"))
+
+# Arma los mensajes A2UI segun lo que haya pedido el agente.
+def mensajes_a2ui(respuesta=""):
+    seguir = preguntas_de(respuesta)
+
+    if pedidas.get("presentacion"):
+        fragmentos, _ = embeddings.todos()
+        texto = "\n".join(embeddings.textos_de("documentos"))
+        return tarjetas.presentacion(
+            nombre_del_candidato(texto),
+            "💻 Desarrollador Full Stack · 🧠 Integración de IA",
+            meses_trabajados(),
+            sum(1 for f in fragmentos if f.get("fuente") == "github"),
+            len(tarjetas.lenguajes_de(fragmentos)),
+            preguntas=seguir or [
+                "¿Qué proyectos tiene en GitHub?",
+                "¿Cuál es su trayectoria laboral?",
+                "¿Qué tecnologías maneja?",
+            ],
+        )
+
+    if pedidas.get("habilidades"):
+        areas = _areas_de(pedidas["habilidades"])
+        if areas:
+            return tarjetas.habilidades(areas, preguntas=seguir)
+
+    if pedidas.get("panel"):
+        fragmentos, _ = embeddings.todos()
+        return tarjetas.panel(meses_trabajados(), fragmentos, preguntas=seguir)
+
+    if pedidas.get("trayectoria"):
+        texto = "\n".join(embeddings.textos_de("documentos"))
+        periodos = [
+            (d.strftime("%m/%Y"), h.strftime("%m/%Y"), "Periodo registrado")
+            for d, h in fusionar(periodos_del_texto(texto))
+        ]
+        return tarjetas.linea_de_tiempo(periodos, preguntas=seguir)
+
+    if pedidas.get("stack"):
+        areas = _areas_de(pedidas["stack"])
+        if areas:
+            return tarjetas.stack(areas, preguntas=seguir)
+
+    return tarjetas.desde_fragmentos(
+        ultimos, pedidas.get("titulo", "Perfil"), preguntas=seguir
+    )
+
+
+def meses_trabajados():
+    texto = "\n".join(embeddings.textos_de("documentos"))
+    periodos = fusionar(periodos_del_texto(texto))
+    return sum((h.year - d.year) * 12 + (h.month - d.month) for d, h in periodos)
+
+
+# "Backend: Python, Java" por linea, a pares (area, tecnologias).
+def _areas_de(texto):
+    areas = []
+    for linea in texto.splitlines():
+        if ":" not in linea:
+            continue
+        area, tecnologias = linea.split(":", 1)
+        lista = [t.strip() for t in tecnologias.split(",") if t.strip()]
+        if lista:
+            areas.append((area.strip(), lista))
+    return areas

@@ -52,12 +52,14 @@ def desde_documentos():
                 {"fuente": "documentos", "titulo": pdf.stem, "texto": bloque}
             )
 
-    for md in sorted(CARPETA.glob("*.md")):
-        if md.name == "LEEME.md":
+    # Ademas de los PDF, cualquier .md o .txt que pongas en cv/ entra al
+    # indice. Es la forma de agregar informacion sin tocar codigo.
+    for nota in sorted(list(CARPETA.glob("*.md")) + list(CARPETA.glob("*.txt"))):
+        if nota.name == "LEEME.md":
             continue
-        for bloque in partir(limpiar(md.read_text(encoding="utf-8"))):
+        for bloque in partir(limpiar(nota.read_text(encoding="utf-8"))):
             fragmentos.append(
-                {"fuente": "documentos", "titulo": md.stem, "texto": bloque}
+                {"fuente": "documentos", "titulo": nota.stem, "texto": bloque}
             )
 
     return fragmentos
