@@ -6,9 +6,8 @@ venv/
 .git/
 .gitignore
 
-# Solo se usan para construir el indice o para desarrollo,
-# no hacen falta dentro del contenedor.
-cv/*.pdf
+# Los PDF de cv/ SI entran: el contenedor construye el indice solo
+# la primera vez que alguien busca.
 tests/
 README.md
 Dockerfile

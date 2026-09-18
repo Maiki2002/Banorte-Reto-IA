@@ -193,6 +193,9 @@ class Transmision:
             },
         )
 
+    def item_extra(self, item, indice=1):
+        return eventos_de_item(self, item, indice)
+
     def cerrar(self):
         completa = armar_respuesta(self.modelo, self.texto, ident=self.ident)
         return [
@@ -227,3 +230,20 @@ class Transmision:
             ),
             evento("response.completed", self._siguiente(), {"response": completa}),
         ]
+
+
+# Un item de output extra despues del mensaje, con sus eventos de
+# apertura y cierre. Se usa para las tarjetas A2UI.
+def eventos_de_item(transmision, item, indice=1):
+    return [
+        evento(
+            "response.output_item.added",
+            transmision._siguiente(),
+            {"output_index": indice, "item": item},
+        ),
+        evento(
+            "response.output_item.done",
+            transmision._siguiente(),
+            {"output_index": indice, "item": item},
+        ),
+    ]

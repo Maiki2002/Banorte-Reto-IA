@@ -8,6 +8,7 @@ import llm
 import memoria
 import open_responses as spec
 import reglas
+import tarjetas
 
 app = FastAPI()
 
@@ -90,7 +91,19 @@ async def responder(request: Request):
             ident, conversacion + [{"rol": "assistant", "texto": texto}]
         )
 
-    return spec.armar_respuesta(modelo, texto, ident=ident, anterior=anterior)
+    respuesta = spec.armar_respuesta(modelo, texto, ident=ident, anterior=anterior)
+
+    # Solo si el agente pidio tarjetas con su herramienta.
+    if agente.pedidas:
+        respuesta["output"].extend(
+            tarjetas.como_items(
+                agente.mensajes_a2ui(),
+                spec.nuevo_id("fc"),
+                spec.nuevo_id("call"),
+            )
+        )
+
+    return respuesta
 
 
 async def transmitir_fijo(modelo, texto):
@@ -121,8 +134,22 @@ async def transmitir(modelo, conversacion, ident, guardar, instrucciones=None):
 
     print("HERRAMIENTAS:", usadas or "ninguna")
 
+    # La plataforma pide stream, asi que las tarjetas tienen que salir
+    # tambien por aqui: van como un delta mas, antes de cerrar.
     for e in envio.cerrar():
         yield e
+
+    # Las tarjetas van como items aparte, despues del mensaje: la llamada
+    # y su resultado, que es lo que la plataforma espera para pintarlas.
+    if agente.pedidas:
+        items = tarjetas.como_items(
+            agente.mensajes_a2ui(),
+            spec.nuevo_id("fc"),
+            spec.nuevo_id("call"),
+        )
+        for numero, item in enumerate(items, start=1):
+            for e in envio.item_extra(item, numero):
+                yield e
 
     if guardar:
         await memoria.guardar(

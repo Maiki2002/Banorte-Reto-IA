@@ -7,3 +7,4 @@ httpx==0.28.1
 pypdf==6.19.0
 redis==5.2.1
 google-adk==2.9.1
+azure-cosmos==4.17.1

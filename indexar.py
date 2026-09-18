@@ -1,14 +1,17 @@
-import json
+# Lee las fuentes del agente: los PDF de cv/ y los repos de GitHub.
+#
+# No se corre a mano: embeddings.asegurar_indice() lo usa cuando el
+# almacen esta vacio, y agente.py cuando aparecen repos nuevos.
+
 import pathlib
 
 import httpx
-import numpy as np
 from pypdf import PdfReader
 
-import llm
+import httpx
+from pypdf import PdfReader
 
 CARPETA = pathlib.Path("cv")
-SALIDA = pathlib.Path("indice.json")
 USUARIO_GITHUB = "Maiki2002"
 
 MINIMO = 60
@@ -64,10 +67,18 @@ def desde_github():
     base = "https://api.github.com"
 
     with httpx.Client(timeout=20) as web:
-        repos = web.get(
+        respuesta = web.get(
             f"{base}/users/{USUARIO_GITHUB}/repos",
             params={"per_page": 100, "sort": "updated"},
-        ).json()
+        )
+
+        # Sin token la API permite 60 peticiones por hora. Cuando se
+        # agotan devuelve un error en vez de la lista, y conviene seguir
+        # con los documentos en vez de tirar todo el indexado.
+        repos = respuesta.json()
+        if respuesta.status_code != 200 or not isinstance(repos, list):
+            print(f"  GitHub no respondio ({respuesta.status_code}), se omite")
+            return []
 
         for repo in repos:
             if repo.get("fork"):
@@ -97,30 +108,3 @@ def desde_github():
     return fragmentos
 
 
-def main():
-    print("Recolectando fuentes...")
-    documentos = desde_documentos()
-    github = desde_github()
-    fragmentos = documentos + github
-    print(f"  documentos: {len(documentos)}")
-    print(f"  github:     {len(github)}")
-
-    print(f"\nCalculando embeddings de {len(fragmentos)} fragmentos...")
-    vectores = llm.embeber([f["texto"] for f in fragmentos])
-
-    # Los normalizo aqui para que buscar sea un producto punto.
-    matriz = np.array(vectores, dtype="float32")
-    matriz /= np.linalg.norm(matriz, axis=1, keepdims=True)
-
-    SALIDA.write_text(
-        json.dumps(
-            {"fragmentos": fragmentos, "vectores": matriz.tolist()},
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-    print(f"\nListo: {SALIDA} ({SALIDA.stat().st_size / 1024:.0f} KB)")
-
-
-if __name__ == "__main__":
-    main()

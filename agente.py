@@ -11,6 +11,8 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import errors, types
 
 import busqueda
+import embeddings
+import tarjetas
 import reglas
 
 load_dotenv()
@@ -59,16 +61,19 @@ def buscar_cv(consulta: str) -> str:
 
 def buscar_github(consulta: str) -> str:
     encontrados = busqueda.buscar(consulta, fuente="github", cuantos=4)
+
+    # Si no hay nada indexado que sirva, puede que sean repos nuevos:
+    # los traigo de GitHub, los indexo y vuelvo a buscar.
+    if not encontrados and indexar_repos_nuevos():
+        encontrados = busqueda.buscar(consulta, fuente="github", cuantos=4)
+
     if not encontrados:
         return "No encontre ningun repositorio relacionado con eso."
     return con_su_fuente(encontrados)
 
 
 def calcular_experiencia() -> str:
-    fragmentos, _ = busqueda.cargar()
-    texto = "\n".join(
-        f["texto"] for f in fragmentos if f["fuente"] == "documentos"
-    )
+    texto = "\n".join(embeddings.textos_de("documentos"))
 
     periodos = periodos_del_texto(texto)
     if not periodos:
@@ -106,10 +111,90 @@ def nombre_del_candidato(texto):
     return "no identificado en los documentos"
 
 
+
+# Consulta GitHub en vivo y agrega al indice los repos que todavia no
+# estuvieran. Devuelve cuantos agrego.
+def indexar_repos_nuevos():
+    import indexar
+
+    try:
+        ya_estan = embeddings.titulos("github")
+        nuevos = [
+            f for f in indexar.desde_github() if f["titulo"] not in ya_estan
+        ]
+    except Exception as error:
+        print("No pude consultar GitHub:", error)
+        return 0
+
+    if not nuevos:
+        return 0
+
+    print(f"  indexando {len(nuevos)} repos nuevos:",
+          ", ".join(f["titulo"] for f in nuevos))
+    embeddings.agregar(nuevos)
+    return len(nuevos)
+
+
+def mostrar_tarjetas(titulo: str) -> str:
+    """Presenta en tarjetas visuales lo ultimo que buscaste.
+
+    Usala cuando la respuesta enumere varios elementos comparables entre
+    si (proyectos, repositorios, empleos): las tarjetas se leen mejor que
+    una lista larga. NO la uses para una cifra, un dato suelto o una
+    explicacion en prosa.
+
+    Si la llamas, tu texto debe ser breve y presentar el conjunto, sin
+    repetir lo que ya va en cada tarjeta.
+
+    Args:
+        titulo: encabezado corto para el grupo de tarjetas.
+    """
+    if not tarjetas.activado():
+        return "Las tarjetas no estan disponibles; responde solo con texto."
+    if not ultimos:
+        return "No hay resultados recientes que mostrar en tarjetas."
+
+    pedidas["titulo"] = titulo
+    return f"Listo: se mostraran {len(ultimos)} tarjetas bajo '{titulo}'."
+
+
+# El modelo pide las tarjetas llamando a la herramienta; main.py las
+# adjunta solo si quedo algo aqui.
+pedidas = {}
+
+
+def mostrar_panel() -> str:
+    """Muestra un panel visual con las cifras del perfil y una grafica.
+
+    Incluye meses de experiencia, numero de repositorios y lenguajes
+    distintos, mas una grafica de repositorios por lenguaje. Todas las
+    cifras son calculadas, no estimadas.
+
+    Usala cuando pidan un resumen, un panorama o una vista general del
+    perfil. Si la llamas, tu texto debe ser corto: el panel muestra los
+    numeros, tu pones el contexto.
+    """
+    if not tarjetas.activado():
+        return "El panel no esta disponible; responde solo con texto."
+
+    pedidas["panel"] = True
+    return "Listo: se mostrara el panel con las cifras del perfil."
+
+
 HERRAMIENTAS = [buscar_cv, buscar_github, calcular_experiencia]
+if tarjetas.activado():
+    HERRAMIENTAS.extend([mostrar_tarjetas, mostrar_panel])
+
+
+# Lo ultimo que se recupero, por si hay que armar tarjetas con ello.
+ultimos = []
 
 
 def con_su_fuente(encontrados):
+    # Se guarda lo recuperado por si hay que armar tarjetas con ello.
+    ultimos.clear()
+    ultimos.extend(encontrados)
+
     partes = []
     for r in encontrados:
         partes.append(
@@ -168,29 +253,56 @@ def fusionar(periodos):
 # prompt
 
 ESTILO = """
+Tu postura:
+
+No eres un buscador de datos: representas al candidato ante alguien que
+decide si lo entrevista. Tu trabajo es que entienda por que vale la pena,
+usando lo que de verdad hizo.
+
 Como escribes:
 
-- Abre con una o dos frases en prosa que respondan directamente lo que
-  preguntaron. Nunca arranques con una lista.
-- Despues desarrolla: explica que hizo, con que tecnologia y para que
-  servia. Si lo recuperado menciona un resultado o un problema resuelto,
-  cuentalo, porque es lo que le interesa a quien contrata.
-- Conecta lo que recuperaste. Si una tecnologia aparece en un empleo y en
-  un proyecto, dilo.
+- Abre con una o dos frases en prosa que respondan lo que preguntaron y
+  ya digan algo que valga. Nunca arranques con una lista.
+- Cuenta el impacto, no la tarea. En vez de "uso Python", di que
+  problema resolvio, con que y para que servia. Si lo recuperado
+  menciona un resultado, una migracion o un sistema heredado que tuvo
+  que entender, eso es lo que interesa.
+- Conecta lo que recuperaste. Si una tecnologia aparece en un empleo y
+  en un proyecto propio, dilo: demuestra que no la vio una sola vez.
+- Cuando algo sea pequeno, enmarcalo bien en vez de agrandarlo. Un
+  becario que documenta un servicio SOAP sin documentacion previa
+  demuestra algo real; no hace falta llamarlo arquitecto.
 - Usa vinetas solo para cosas paralelas (un stack, varios repositorios).
   Para lo demas, escribe parrafos.
-- Apunta a unas 120 o 200 palabras. Si de verdad hay poco que contar, se
-  breve en vez de rellenar.
-- Habla del candidato en tercera persona. Usa su nombre SOLO si
-  aparece en lo que recuperaste; si no aparece, di "el candidato".
-  Nunca inventes un nombre.
+- Apunta a unas 120 o 200 palabras.
+- Habla del candidato en tercera persona. Usa su nombre SOLO si aparece
+  en lo que recuperaste; si no, di "el candidato". Nunca inventes un
+  nombre.
+
+Los limites, que no se negocian:
+
+- Solo afirmas lo que viste en lo recuperado. Puedes explicarlo, ordenarlo
+  y darle contexto, pero no agregar experiencia, anios, niveles ni
+  tecnologias que no aparezcan.
+- Nada de superlativos vacios: "experto", "dominio total", "el mejor".
+  Un dato concreto convence mas que un adjetivo.
+- Si te preguntan por algo que no tiene, dilo con naturalidad y ofrece lo
+  mas cercano que si tenga. Reconocer un hueco da mas credibilidad que
+  esquivarlo.
+
+Cuando uses tarjetas o panel:
+
+Si llamas a mostrar_tarjetas o mostrar_panel, tu texto se acorta:
+presenta el conjunto en dos o tres frases y deja que lo visual cuente el
+detalle. No repitas lo que ya va ahi.
 
 Como cierras:
 
 Termina ofreciendo dos o tres preguntas concretas para seguir, una por
-linea. Tienen que ser sobre temas de los que acabas de ver informacion y
-distintas de la que ya te hicieron.
+linea. Que inviten a profundizar en lo mas fuerte de lo que acabas de
+contar, y sean sobre temas de los que viste informacion.
 """
+
 
 INSTRUCCIONES = (
     "Eres el agente que representa el perfil profesional de un candidato "
@@ -266,6 +378,8 @@ def _mensaje(turnos):
 
 
 async def responder(turnos, extra=None):
+    pedidas.clear()
+    ultimos.clear()
     mensaje = _mensaje(turnos)
     ultimo_error = None
 
@@ -295,6 +409,8 @@ async def responder(turnos, extra=None):
     raise RuntimeError(f"Ningun modelo disponible. Ultimo error: {ultimo_error}")
 
 async def responder_en_partes(turnos, extra=None):
+    pedidas.clear()
+    ultimos.clear()
     mensaje = _mensaje(turnos)
     ajustes = RunConfig(streaming_mode=StreamingMode.SSE)
     ultimo_error = None
@@ -341,3 +457,17 @@ async def responder_en_partes(turnos, extra=None):
             ultimo_error = error
 
     raise RuntimeError(f"Ningun modelo disponible. Ultimo error: {ultimo_error}")
+
+
+# Arma los mensajes A2UI segun lo que haya pedido el agente.
+def mensajes_a2ui():
+    if pedidas.get("panel"):
+        texto = "\n".join(embeddings.textos_de("documentos"))
+        periodos = fusionar(periodos_del_texto(texto))
+        meses = sum(
+            (h.year - d.year) * 12 + (h.month - d.month) for d, h in periodos
+        )
+        fragmentos, _ = embeddings.todos()
+        return tarjetas.panel(meses, fragmentos)
+
+    return tarjetas.desde_fragmentos(ultimos, pedidas.get("titulo", "Perfil"))
